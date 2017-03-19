@@ -1,10 +1,8 @@
 #ifndef ALLOCATOR
 #define ALLOCATOR
 
-#include <set>
-#include <utility> // std::pair
-#include <map>
-
+#include <cstring>
+#include <string>
 
 // Forward declaration. Do not include real class definition
 // to avoid expensive macros calculations and increase compile speed
@@ -18,7 +16,6 @@ class Pointer;
  */
 
 
-
 class Allocator {
     /**
      * Size of allocated buffer. In our case shouldn't be changed
@@ -28,45 +25,18 @@ class Allocator {
     /**
      * Base of allocated memory
      */
-    char const* base;
-
-
-    /*
-     * -------------------------
-     *  Fully internal variables
-     * ------------------------
-     */
+    char * base;
 
     /**
      * Number of free bytes in memory
      */
     size_t free_bytes;
 
-    /**
-     * map of pointer and relative positions in our memory.
-     * Contains returned our Pointer-s and their positions of start and end of piece of memory
-     */
-    std::map<Pointer, std::pair<unsigned int, unsigned int>> pointers;
-
-    /*
-     * Compare struct for set of pairs
-     */
-    struct compare {
-        bool operator()(const std::pair<unsigned int, unsigned int>& p1, const std::pair<unsigned int, unsigned int>& p2){
-            return p1.first < p2.first;
-        } 
-    };
-
-    /**
-     * vector of free spaces
-     */
-    std::set<std::pair<unsigned int, unsigned int>, compare> spaces;
-
 public:
 
     Allocator(void* base_, size_t size_):base((char*) base_), size(size_){
         free_bytes = size;
-        spaces.insert(std::make_pair(0, size - 1));
+	std::memset(base, 0, size);
     }
 
     /**
@@ -75,7 +45,6 @@ public:
      */
 
     // TODO:
-    //TODO: ask whether return reference in sake of defrag. 
     Pointer alloc(size_t N);
 
     /**

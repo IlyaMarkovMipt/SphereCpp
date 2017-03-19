@@ -9,52 +9,51 @@ class Allocator;
 
 class Pointer {
     char** pointer;
+	int *pcounter;
 public:
     Pointer() {
-        //std::cout << "BEGIN Pointer::Pointer();" << std::endl;
         pointer = (char**) malloc (sizeof(char*));
         *pointer = nullptr;
-        //std::cout << "pointer = " << std::hex << pointer << std::dec << std::endl;
-        //std::cout << "*pointer = " << std::hex << *pointer << std::dec << std::endl;
+		pcounter = (int*) malloc (sizeof(int));
+		*pcounter = 1;
     }
     Pointer(void* p){
-        //std::cout << "BEGIN Pointer::Pointer(void*);" << std::endl;
         pointer = (char**) malloc (sizeof(char*));
         *pointer = (char*) p;
-        //std::cout << "Pointer::Pointer(" << std::hex << p << std::dec << ");" << std::endl;
+		pcounter = (int*) malloc (sizeof(int));
+		*pcounter = 1;
     }
     void* get() const { 
-        //std::cout << "Pointer::get();" << std::endl;
         return (void*) *pointer;
     }
     void  set(void* new_p) {
-       // std::cout << "Pointer::set(" << std::hex << new_p << std::dec << ");" << std::endl;
         *pointer = (char*) new_p;
     }
 
     char** getp()const{ return pointer;}
 
-    bool operator<(const Pointer& p) const {
-        //std::cout << "Pointer::operator<()" << std::endl;
-        return *pointer < p.get();
-    }
-
     /*
      * Copy contructor
      */
     Pointer(const Pointer& p){
-        //std::cout << "BEGIN Pointer::Pointer(const Pointer& p);" << std::endl;
         pointer = p.getp();
+		pcounter = p.pcounter;
+		(*pcounter)++;
     }
     
     void operator=(const Pointer& p){
         //std::cout << "Pointer::operator=(const Pointer& )" << std::endl;
         pointer = p.getp();
+		pcounter = p.pcounter;
+		(*pcounter)++;
     }
     ~Pointer(){
-        //std::cout << "BEGIN Pointer::~Pointer() pointer=:" <<std::hex << pointer << ", *pointer = "<< (void*)*pointer << std::dec << std::endl;
-        //if (pointer && *pointer)
-            //free(pointer);
+        //TODO: I can refactor it with unique_ptr or shared_ptr, but no time for it
+		(*pcounter)--;
+		if (!*pcounter && pointer) {
+            free(pointer);
+			free(pcounter);
+		}
     }
 };
 

@@ -2,148 +2,168 @@
 #include "allocator_pointer.h"
 #include "allocator_error.h"
 
-#include <cstring>
 using namespace std;
 
+/*
+ * Util functions
+ */
+
+const int extra_size = 3 * sizeof(int) + sizeof(char**);
+
+// offsets inside meta info
+const int prev_offset = sizeof(int);
+const int next_offset = 2 * sizeof(int);
+const int ref_offset = 3 * sizeof(int);
+
+void int_to_bytes(const int num, char* a) {
+	memcpy(a, &num, sizeof(int));	
+}
+
+int bytes_to_int(const char* arr) {
+	int res = 0; 
+	memcpy(&res, arr, sizeof(int));
+	return res;
+}
+
+/*
+ * Meta information takes 20 bytes per block
+ * 1. size of block
+ * 2. offset from start of next block
+ * 3. offset from start of prev block. Needed for delete
+ * 4. reference to pointer to pointer to block. Needed for defrag
+ * next block of last block is zero
+ */
+
+// -1 of parameter indicates not to change field of meta info
+void set_ints(char* arr, int size, int prev, int next, char** ref) {
+	if (size >= 0)
+		int_to_bytes(size, arr);
+	arr += sizeof(int);
+	if (prev >= 0)
+		int_to_bytes(prev, arr);
+	arr += sizeof(int);
+	if (next >= 0)
+		int_to_bytes(next, arr);
+	arr += sizeof(int);
+	if (ref)
+		std::memcpy(arr, &ref, sizeof(ref));
+}
+
 Pointer Allocator::alloc(size_t N) {
-    if (N > free_bytes){
+    if (N + extra_size > free_bytes) {
         throw AllocError(AllocErrorType::NoMemory, "No free space");
     } 
+	
+	int cur_pointer = 0;
+	int cur_size = 0;
+	int cur_next = 0;
 
-    unsigned int start = 0;
-    if (!pointers.empty()){
-        //some logic        
-        start = -1;
-        for (auto it = spaces.begin(); it != spaces.end(); it++){
-            if (it->second - it->first + 1 >= N){
-                start = it->first;
-                unsigned int end = it->second;
-                spaces.erase(it);
-
-                if (start + N <= end)
-                    spaces.insert(make_pair(start + N, end));
-                
-                break;
-            }
-        }
-        if (start == -1){
-            throw AllocError(AllocErrorType::NoMemory, "No available free chunks. Memory is defragmeted. Try to call defrag()");
-        }
-    } else{
-        spaces.clear();// delete one single element 
-        spaces.insert(make_pair(N, size));
-    }
-    Pointer p((void*)(base + start));
+	while (true) {
+		cur_size = bytes_to_int(base + cur_pointer);
+		cur_next = bytes_to_int(base + cur_pointer + next_offset);
+		if (cur_next == 0) {
+			//this is the last block
+			if (cur_pointer + cur_size + (cur_size > 0) * extra_size
+							+ extra_size + N >= size) {
+				throw AllocError(AllocErrorType::NoMemory, "No available free block. Try defrag");
+			}
+			break;
+		}
+		
+		if (cur_size + extra_size * (cur_size > 0) + extra_size + N
+						<= cur_next - cur_pointer) {
+			// we can alloc our block here
+			break;
+		}
+		cur_pointer = cur_next;
+	}
+	Pointer p;
+	int alloc_pointer = cur_pointer + (cur_size > 0) * extra_size + cur_size;
+	// change current block meta
+	set_ints(base + cur_pointer, -1, -1, alloc_pointer, NULL);
+	// set new block meta
+	set_ints(base + alloc_pointer, N, cur_pointer, cur_next, p.getp());
+	if (cur_next > 0)
+			set_ints(base + cur_next, -1, alloc_pointer, -1, NULL);
+	p.set(base + alloc_pointer + extra_size);
     free_bytes -= N;
-    pointers.emplace(p, make_pair(start, start + N - 1));
     return p;
 }
 
 void Allocator::free(Pointer& p){
-    map<Pointer, pair<unsigned int, unsigned int>>::iterator del_pair_it = pointers.find(p);
-    if (del_pair_it == pointers.end()){
-        throw AllocError(AllocErrorType::InvalidFree, "Invalid free() usage");
-    }
-    pair<unsigned int, unsigned int> del_pair = (*del_pair_it).second;
+    char *p_todel = (char*)p.get() - extra_size;
+	int size_del = bytes_to_int(p_todel);
+	int prev_del = bytes_to_int(p_todel + prev_offset);
+    int next_del = bytes_to_int(p_todel + next_offset);
 
-    auto prev_free_space_it = spaces.end(); // free space before deleting chunk
-    auto next_free_space_it = spaces.end(); // free space after deleting chunk
-
-    int new_start = del_pair.first; // start of new free space
-    int new_end = del_pair.second;  // end of new free space
-
-    for (auto it = spaces.begin(); it != spaces.end(); it++){
-        // TODO: Question. Doesn't iterator prev_free.. change while it changes? 
-        if (it->second == del_pair.first){
-            prev_free_space_it = it;
-            new_start = it->first;
-            it = spaces.erase(prev_free_space_it);
-            continue;
-        }
-        if (it->first == del_pair.second){
-            next_free_space_it = it;
-            new_end = it->second;
-            it = spaces.erase(next_free_space_it);
-        }
-    }
-
-    
-
-    spaces.insert(make_pair(new_start, new_end));
-    pointers.erase(del_pair_it);
-    free_bytes += del_pair.second - del_pair.first + 1;
-    p.set(nullptr);
+	set_ints(base + prev_del, -1, -1, next_del, NULL);
+	set_ints(base + next_del, -1, prev_del, -1, NULL);
+	set_ints(p_todel, 0, -1, -1, NULL);
+	free_bytes += size_del;
+	p.set(nullptr);
 }
 
 void Allocator::realloc(Pointer& p, size_t N){
-    map<Pointer, pair<unsigned int, unsigned int>>::iterator pair_it = pointers.find(p);
+	char *p_= (char*)p.get() - extra_size;
     
-    if (pair_it == pointers.end()){
+    if (p_ == nullptr || p_ < base || p_ > base + size) {
+		// pointer was not from allocator 
         p = alloc(N);
         return;
     }
 
-    pair<unsigned int, unsigned int> old_pair = (*pair_it).second;
-    size_t current_size = old_pair.second - old_pair.first + 1;
-    if (N == current_size){
+	int cur_size = bytes_to_int(p_);
+    int cur_next = bytes_to_int(p_ + next_offset);
+    if (N == cur_size){
         // do nothing
         return;
     }
 
-    if (N < current_size){
-        for (auto it = spaces.begin(); it != spaces.end(); it++){
-            if (it->first == old_pair.second){
-                int end = it->second;
-                it = spaces.erase(it);
-                spaces.insert(make_pair(old_pair.first + N - 1, end));
-                break;
-            }
-        }
+    if (N < cur_size){
+		set_ints(p_, N, -1, -1, NULL);
 
-        free_bytes += current_size - N;
-
-        //TODO: ask if iterator returns a reference
-        old_pair.second = old_pair.first + N - 1;
+        free_bytes += cur_size - N;
         return;
     }
-
     free(p);
     p = alloc(N);
+	memcpy(p.get(), p_ + extra_size, cur_size);
 }
 
 
 void Allocator::defrag(){
-    int prev_end = -1;
-//    std::cout << "In allocator before" << std::endl;
-//    for (auto it = pointers.begin(); it != pointers.end(); it++){
-//        std::cout << std::hex << it->first.getp() << " " << it->first.get() << std::dec << " ";
-//    }
-//
-//    std::cout << std::endl;
-//
-    for (auto it = pointers.begin(); it != pointers.end(); ){ // they are all sorted in order of usual pointers. That is all we need.
-        pair<Pointer, pair<unsigned int, unsigned int>> coords = *it;// first - Pointer, second - pair: start: end;
-        if (coords.second.first > prev_end + 1){
-            int size = coords.second.second - coords.second.first + 1;
-            std::memcpy((void*) (base + prev_end + 1), // destination
-                    (void*) (base + coords.second.first), // source
-                    size * sizeof(char)); // number of bytes 
-            coords.first.set((void*)(base + prev_end + 1));
-            coords.second = make_pair(prev_end + 1, prev_end + size);
-            it = pointers.erase(it);
-            pointers.insert(coords);//we insert left always, so it doesn't affect iterator
-            prev_end += size;
-        } else {
-            prev_end = coords.second.second;
-            it++;
-        }
-    }
-//    std::cout << "In allocator after: " << pointers.size() << std::endl;
-//    for (auto it = pointers.begin(); it != pointers.end(); it++){
-//        std::cout << std::hex << it->first.getp() << " " << it->first.get() << std::dec << " ";
-//    }
-//    std::cout << std::endl;
-    spaces.clear();//delete all spaces
-    if (prev_end < size - 1)
-        spaces.insert(make_pair(prev_end + 1, size - 1));
+	int cur_pointer = 0;
+	int cur_size = 0;
+	int cur_next = 0;
+	int cur_prev = 0;
+
+	while (true) {
+		cur_size = bytes_to_int(base + cur_pointer);
+		cur_prev = bytes_to_int(base + cur_pointer + prev_offset);
+		cur_next = bytes_to_int(base + cur_pointer + next_offset);
+		if (cur_next == 0)
+				break;
+		if (cur_size + (cur_size > 0) * extra_size < cur_next - cur_pointer) {
+			// need to move next block
+			// first get meta about next block
+			int next_size = bytes_to_int(base + cur_next);
+			int next_next = bytes_to_int(base + cur_next + next_offset);
+			char** next_ref = NULL;
+			std::memcpy(&next_ref, base + cur_next + ref_offset, sizeof(char**));
+
+			// get new place to move, refresh pointer of next block and move data
+			int new_place = cur_pointer + (cur_size > 0) * extra_size + cur_size;
+			*next_ref = base + new_place + extra_size;
+			std::memcpy((void*) (base + new_place + extra_size),
+						(void*)	(base + cur_next + extra_size),
+							next_size
+							);
+			// refresh meta data of adjacent to next blocks
+			set_ints(base + new_place, next_size, cur_pointer, next_next, next_ref);
+			set_ints(base + cur_pointer, -1, -1, new_place, NULL);
+			set_ints(base + next_next, -1, new_place, -1, NULL);
+			cur_next = new_place;
+		}
+		cur_pointer = cur_next;
+	}
 }
