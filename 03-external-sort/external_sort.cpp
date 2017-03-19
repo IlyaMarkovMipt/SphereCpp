@@ -69,7 +69,11 @@ void sort(const std::string& input_filename,
 
 unsigned int split_into_chunks(const std::string& filename,
 		 unsigned int chunk_size) {
-	std::ifstream input_file(filename, std::ios::binary);
+	std::ifstream input_file;
+	input_file.open(filename, std::ios::binary);
+	if (!input_file.is_open()) {
+		throw std::runtime_error("File is not open");
+	}
 	int chunks_count = 0;
 	char* buffer = new char[chunk_size];
 
@@ -77,7 +81,6 @@ unsigned int split_into_chunks(const std::string& filename,
 		input_file.read(buffer, chunk_size);
 		auto read_length = input_file.gcount();
 		if (read_length > 0) {
-			std::cout << chunks_count << " " << read_length << std::endl;
 			auto chunk_filename = get_chunk_filename(chunks_count++);
 			std::ofstream chunk_file(chunk_filename,
 					 std::ios::binary | std::ios::trunc);
@@ -149,7 +152,6 @@ void merge_sorted_chunks(const std::vector<std::string>& chunk_filenames,
         TYPE smallest = heap.back().value();
         output_file.write((char*) & smallest, sizeof(TYPE) / sizeof(char));
     } while(heap.back().move());
-
     output_file.close();
 }
 
