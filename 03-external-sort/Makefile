@@ -8,5 +8,3 @@ SRC_SORT := ./main.cpp ./external_sort.cpp
 
 all: 
 	$(COMP) $(SRC_SORT) $(CFLAGS) -o sort
-
-
