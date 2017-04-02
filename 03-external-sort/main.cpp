@@ -1,9 +1,9 @@
 #include "external_sort.h"
-#include <cstdlib>
-#include <ctime>
-#include <limits>
-#include <fstream>
-#include <iostream>
+//#include <cstdlib>
+//#include <ctime>
+//#include <limits>
+//#include <fstream>
+//#include <iostream>
 
 int main(){
 	//std::string input_filename("input");
@@ -30,6 +30,6 @@ int main(){
 	//myfile.flush()
 	
 	//delete []buffer;
-	sort("input", "output");
+	sort("input", "output", 100);
 	return 0;
 }

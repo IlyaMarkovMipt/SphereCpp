@@ -32,7 +32,8 @@ public:
 };
 
 const int DEFAULT_CHUNK_NUMBER = 100;
-void sort(const std::string&, const std::string&);
+// need maximal number of opened files simultaiously, and size of buffer of reading.
+void sort(const std::string&, const std::string&, int max_chunk);
 void sort_chunk(const std::string& chunk_filename, unsigned int chunk_size);
 void merge_sorted_chunks(const std::vector<std::string>& chunk_filenames, 
 				std::string output_filename);

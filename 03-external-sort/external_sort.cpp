@@ -6,6 +6,7 @@
 #include <algorithm>
 #include <iterator>
 #include <exception>
+#include <queue>
 
 typedef int TYPE;
  
@@ -36,12 +37,13 @@ unsigned int get_chunk_size(const std::string& input_filename) {
 		chunk_size = file_size / DEFAULT_CHUNK_NUMBER;
 		return chunk_size - chunk_size % sizeof(TYPE);
 	}
-	chunk_size = free_memory / 512;
+	chunk_size = free_memory / 2;
 	return chunk_size - chunk_size % sizeof(TYPE); 
 }
 
 void sort(const std::string& input_filename,
-		const  std::string& output_filename) {
+		const  std::string& output_filename,
+		int max_chunk) {
 	unsigned int chunk_size = get_chunk_size(input_filename);	
 	std::cout << "chunk size = " << chunk_size << std::endl;
 	unsigned int initial_chunks_count = split_into_chunks(input_filename,
@@ -51,17 +53,30 @@ void sort(const std::string& input_filename,
 			<< chunk_size
 			<< std::endl;
 
-	std::vector<std::string> chunk_filenames;
+	std::queue <std::string>chunks;
 	for (int i = 0; i < initial_chunks_count; ++i) {
-                sort_chunk(get_chunk_filename(i), chunk_size);
-                std::cout << "Chunk #" << i << " sorted" << std::endl;
-		chunk_filenames.emplace_back(get_chunk_filename(i));
+         sort_chunk(get_chunk_filename(i), chunk_size);
+         std::cout << "Chunk #" << i << " sorted" << std::endl;
+         chunks.emplace(get_chunk_filename(i));
 	}
-
-	merge_sorted_chunks(chunk_filenames, 
-			get_chunk_filename(initial_chunks_count));
-	delete_files(chunk_filenames);
-	if (std::rename(get_chunk_filename(initial_chunks_count).c_str(),
+	int number = initial_chunks_count;
+    std::cout << "Start merging" << std::endl;
+    while (chunks.size() != 1) {
+        std::vector<std::string> buf;
+        std::cout << "adding to merge:" << std::endl;
+        for (int i = 0; i < max_chunk && !chunks.empty(); i++) {
+            std::cout << chunks.front() << "  ";
+            buf.push_back(chunks.front());
+            chunks.pop();
+        }
+        std::cout << std::endl;
+        chunks.emplace(get_chunk_filename(++number));
+        merge_sorted_chunks(buf, 
+            chunks.back());
+        std::cout << "New file: " << chunks.back() << std::endl;
+	    delete_files(buf);
+    }
+	if (std::rename(get_chunk_filename(number).c_str(),
 				 output_filename.c_str()) != 0) {
 		throw std::runtime_error("Can't rename chunk into output file");
 	}

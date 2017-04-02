@@ -6,5 +6,9 @@ COMP := g++
 
 SRC_SORT := ./main.cpp ./external_sort.cpp
 
+CHECK := ./check.cpp
+
 all: 
 	$(COMP) $(SRC_SORT) $(CFLAGS) -o sort
+	$(COMP) $(CHECK) $(CFLAGS) -o check
+
