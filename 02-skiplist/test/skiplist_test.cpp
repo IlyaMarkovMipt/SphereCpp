@@ -16,6 +16,8 @@ TEST(SkipListTest, SimplePut) {
   SkipList<int, string, 8> sk;
 
   const std::string *pOld = sk.Put(10, "test");
+  const std::string *pOld1 = sk.Put(20, "test2");
+  const std::string *pOld2 = sk.Put(30, "test3");
   ASSERT_EQ(nullptr, pOld);
   pOld = sk[10];
   ASSERT_NE(nullptr, pOld)         << "Value found";
@@ -30,4 +32,9 @@ TEST(SkipListTest, SimplePut) {
   ASSERT_EQ(10, it.key())               << "Iterator key is correct";
   ASSERT_EQ(string("test"), it.value()) << "Iterator value is correct";
   ASSERT_EQ(string("test"), *it)        << "Iterator value is correct";
+  pOld = sk.Delete(20);
+  ASSERT_NE(nullptr, pOld)         << "Value found";
+  sk.Get(20);
+  pOld = sk.Get(20);
+  ASSERT_EQ(nullptr, pOld) << "Value is deleted";
 }

@@ -93,15 +93,17 @@ public:
                 node_next->value(&value);
                 // add more stairs
                 Node<Key, Value> *down = node_next;
+		int flip = rand();
                 for (int i = 1; i < MAXHEIGHT + 1; i++) {
                     IndexNode<Key, Value> *index_node = (IndexNode<Key, Value> *) prevs[i];
                     if ((index_node->next())->root() != node_next) {
                         // we have found index_node which not above our node_next
-                        if (flip()) {
+                        if (flip & 1 == 1) {
                             IndexNode<Key, Value> *new_ = new IndexNode<Key, Value>(down, node_next);
                             new_->next(index_node->next());
                             index_node->next(new_);
                             down = new_;
+			    flip >>= 1;
                         } else {
                             break;
                         }
@@ -175,19 +177,28 @@ public:
         Node<Key, Value> *prevs[MAXHEIGHT];
         find_(key, prevs);
         DataNode<Key, Value> *node_next =  ((DataNode<Key, Value> *)prevs[0])->next();
+        
         if (node_next != pTail) {
-            Key next_key = node_next->key();
-            if (!(cmp(key, next_key) || cmp(next_key, key))) {
-                Value *val = new Value(node_next->value());
-                for (int i = 0; i < MAXHEIGHT + 1; i++) {
-                    Node<Key, Value> *ex_node = prevs[i]->next();
-                    prevs[i]->next(ex_node->next());
-                    delete ex_node;
-                }
-                return val;
+            for (int i = 1; i < MAXHEIGHT + 1; i++) {
+				IndexNode<Key, Value> *next = (IndexNode<Key, Value> *) prevs[i]->next();//candidate to be deleted
+            	if (!(next->root() == pHead
+										|| next == pTailIdx 
+										|| cmp(next->key(), key)
+										|| cmp(key, next->key()))) {
+                    prevs[i]->next(next->next());
+                    delete next;
+				} else {
+					break;
+				} 
             }
+			if (!(cmp(key, node_next->key()) || cmp(node_next->key(), key))) {
+				prevs[0]->next(node_next->next());
+				Value *val = new Value(node_next->value());
+				delete node_next;
+				return val;
+			}
         }
-        return nullptr;
+      	return nullptr;
     };
 
     /**
@@ -221,6 +232,9 @@ public:
         return Iterator<Key, Value>(pTail);
     };
 
+    void dump(){
+    	print(aHeadIdx[MAXHEIGHT - 1]);
+    }
 private:
 
     void print(IndexNode<Key, Value>* node) const{
@@ -230,22 +244,21 @@ private:
         printf("pTailIdx: %p \n", pTailIdx);
         printf("Index layer \n");
         while (cur != node->root()){
-            IndexNode<Key, Value>* cur_head = (IndexNode<Key, Value>*)cur;
-            while (cur != pTailIdx) {
-                printf("%p ->", cur);
-                cur = cur->next();
+            IndexNode<Key, Value>* cur_run = (IndexNode<Key, Value>*)cur;
+            while (cur_run != pTailIdx) {
+                printf("%p(%i) ->", cur_run, (cur_run->root() == pHead)?0:cur_run->key());
+                cur_run = cur_run->next();
             }
-            printf("%p \n", cur);
-            cur = ((IndexNode<Key,Value>*)cur_head)->down();
+            printf("%p \n", cur_run);
+            cur = ((IndexNode<Key,Value>*)cur)->down();
         }
         printf("Data layer \n");
         while (cur != pTail){
-            printf("%p:%p ->", cur, (cur == pHead)?0:cur->key());
+            printf("%p:%i ->", cur, (cur == pHead)?0:cur->key());
             cur = cur->next();
         }
         printf("%p\n", cur);
     }
-
     /**
      * Returns the Data_node, previous to one the given key would be inserted to, and previous index_nodes
      */
@@ -258,16 +271,21 @@ private:
                 prevs[height--] = cur;
                 cur = ((IndexNode<Key, Value> *) cur)->down();
             } else {
+		    //It's ok here to call cmp, because cmp == less, of sth like bool return function
                 if (cmp(next->key(), key)) {
                     // if key > next_key we go tj next index node
                     cur = next;
                 } else {
-                    //key <= next->key() we go down
+					// I need to have all previous index nodes without skipping 
+					// down in case of equality
+                    // key <= next->key() we go down
                     prevs[height--] = cur;
                     cur = ((IndexNode<Key, Value> *) cur)->down();
                 }
             }
         }
+		// it's better to save this logic with final move on the last layer
+		// instead of thinking whether call down() or not inmain cycle 
         while (cur->next() != pTail && cmp(cur->next()->key(), key)) {
             cur = cur->next(); // here we find the closest node in the lowest level
         }
@@ -280,22 +298,21 @@ private:
         new_node->next(data_node->next());
         data_node->next(new_node);
         Node<Key, Value>* down = new_node;
+	int flip = rand();
         for (int i = 1; i < MAXHEIGHT + 1; i++){
-            if (flip()){
+            if (flip & 1 == 1){
                 IndexNode<Key, Value>* prev_index = (IndexNode<Key, Value>*)prevs[i];
                 IndexNode<Key, Value>* new_ = new IndexNode<Key, Value>(down , new_node);
                 new_->next(prev_index->next());
                 prev_index->next(new_);
                 down = new_;
+		flip >>= 1;
             } else {
                 break;
             }
         }
     }
 
-    bool flip() const{
-        return rand() % 2;
-    };
 
 };
 
