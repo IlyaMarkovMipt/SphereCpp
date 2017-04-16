@@ -1,0 +1,21 @@
+How to deal with the blocking on send?
+Problem: Now using send we expect that it will get all desired bytes from buffer, but it mustn't.
+We shouldn't block on it and wait till it can take the rest data
+
+Possible solution: We should store the rest data in some context, e.g. in epoll_event.data.ptr. We could store sth like smart structures like queue of strings(we are using c++, why not), 
+or sth from c structures, like buffer and we read it till \n. I like the c++ style, but not sure about whether it's ok to store queue inside epoll_event.
+
+So here is the algorithm.
+Handling a read event. We get the message on EPOLLIN, read it in buffer with cycle until \n. We convert the buffer to std::string. 
+Then iterate over all listeners and try to send them the message. 
+
+Before sending we should check if there is unsent message to this listener in events[i].data.ptr. And send it first. If all is sent, try to send the current.
+
+Algorithm of sending:
+Pass message, the length of message to send to each listeners fd. If it returns -1 handle error, 
+if it returns number of bytes less than message.size(), we store the substring in events[i].data.ptr and events[i].events |= EPOLLOUT(because we need to watch when it's ready to write).
+
+Then in main loop we need besides the accept event and read event handle the write event.
+
+Handling a write event. We take the queue from event[i].data.ptr and top message in queue. Send it with the described send algorithm, check if all bytes are sent and take the next in queue.
+If queue is empty events[i].events ^= EPOLLOUT (because we don't need now this event)
