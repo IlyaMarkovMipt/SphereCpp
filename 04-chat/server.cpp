@@ -14,6 +14,7 @@
 #include <errno.h>
 #include <string.h>
 
+#include <assert.h>
 #include <list>
 #include <queue>
 #include <string>
@@ -37,6 +38,8 @@ int set_nonblock(int fd)
 
 struct my_data {
 	int fd;
+	char buf[BUF_SIZE];
+	size_t read;
 	std::queue<std::string> q;
 };
 
@@ -44,18 +47,7 @@ void handle_message(struct epoll_event *events , int to_handle, std::list<int>& 
 void send_message(struct epoll_event &eventp, const char* msg, size_t len);
 bool send_rest(struct epoll_event &eventp);
 
-std::map<int, struct epoll_event> map_fd;
-
-//inline	
-//struct epoll_event* find_event(struct epoll_event* events, int fd) {
-//	for (int i = 0; i < MAX_EVENTS; i++) {
-//		struct my_data *data = (struct my_data *)events[i].data.ptr;
-//		if (data && data->fd == fd) {
-//			return events + i;
-//		}
-//	}
-//	return NULL;
-//}
+std::map<int, struct epoll_event> writers;
 
 int main(int argc, char **argv)
 {
@@ -120,22 +112,22 @@ int main(int argc, char **argv)
 				set_nonblock(SlaveSocket);
 
 				struct epoll_event Event;
-				struct my_data data;
-				data.fd = SlaveSocket;
-				Event.data.ptr = malloc(sizeof(data));
+				Event.data.ptr = (my_data*) malloc(sizeof(my_data));
 				if (!Event.data.ptr) {
 					throw std::runtime_error("can't malloc in epoll_event");
 				}
-				memcpy(Event.data.ptr, &data, sizeof(data)); // I don't understand what another way to put there needed data can be.
+				((my_data *)Event.data.ptr)->fd = SlaveSocket;
+				((my_data *)Event.data.ptr)->read = 0;
 				Event.events = EPOLLIN | EPOLLET;
 				listeners.push_back(SlaveSocket);
-				map_fd.emplace(SlaveSocket, Event);
+				writers.emplace(SlaveSocket, Event);
 				epoll_ctl(EPoll, EPOLL_CTL_ADD, SlaveSocket, &Event); // here is another memcpy inside into array, i guess.
 				//so i have to free after it, but that is made inside epoll, i hope
 				//free(Event.data.ptr);
 			}
 			else if (Events[i].events & EPOLLIN) {
 				try {
+					printf("accepted: %i\n", ((my_data *)Events[i].data.ptr)->fd);
 					handle_message(Events, i, listeners);
 				} catch(std::runtime_error e) {
 					close(MasterSocket);
@@ -146,7 +138,7 @@ int main(int argc, char **argv)
 			else if (Events[i].events & EPOLLOUT) {
 				send_rest(Events[i]);
 				struct my_data* data = (struct my_data*) Events[i].data.ptr;
-				map_fd[data->fd] = Events[i];
+				writers[data->fd] = Events[i];
 			}
 		}
 	}
@@ -157,39 +149,35 @@ int main(int argc, char **argv)
 
 void handle_message(struct epoll_event *events, int to_handle, std::list<int>& listeners)
 {
-	char buf[BUF_SIZE];
-	bzero(buf, BUF_SIZE);
 	struct my_data* data = (struct my_data*) events[to_handle].data.ptr;
+	assert(data);
 	int fd = data->fd;
-	int len = recv(fd, buf, BUF_SIZE, 0);
-	if (len < 0) {
-		printf("%d:%s", errno, strerror(errno));
-		if (errno == EAGAIN) {
-			return;
-		}
-		throw std::runtime_error("can't read from client");
-	}
-	if (len == 0) {
-		close(fd);
-		listeners.remove(fd);
-	}
-	while (len > 0 && buf[len - 1] != '\n'){
-		len = recv(fd, buf + len, BUF_SIZE - len, 0); 
+	int len = 0; 
+	do {
+		len = recv(fd, data->buf + data->read, BUF_SIZE - data->read, 0);
 		if (len < 0) {
-			printf("%d:%s", errno, strerror(errno));
-			if (errno == EAGAIN) {
+			if (errno == EAGAIN || errno == EWOULDBLOCK) {
 				break;
 			}
+			printf("%d:%s\n", errno, strerror(errno));
 			throw std::runtime_error("can't read from client");
 		}
-	}
+		if (len == 0) {
+			close(fd);
+			listeners.remove(fd);
+			free(data);
+			return;
+		}
+		data->read += len; 
+	} while (len > 0);
 
-	if(listeners.size() == 1) {
-		const char* msg = "You are alone in this chat\n";
-		send(fd, msg, strlen(msg), MSG_NOSIGNAL);
-		return;
+	char *last = strchr(data->buf, '\n');
+	if (last == NULL) {
+		return;	
 	}
-   
+	len = last - data->buf;
+	data->read = 0;
+
 	std::list<int>::iterator it;
 	for(it = listeners.begin(); it != listeners.end();){
 		// I can't save the epoll_event in listeners because it's internal object of epoll
@@ -198,13 +186,13 @@ void handle_message(struct epoll_event *events, int to_handle, std::list<int>& l
 
 		struct epoll_event ev;
 		try {
-			ev = map_fd.at(*it);
+			ev = writers.at(*it);
 		} catch (std::out_of_range e) {
 			it = listeners.erase(it);
 			continue;
 		}
-		send_message(ev, buf, len); 
-		map_fd[*it] = ev;
+		send_message(ev, data->buf, len); 
+		writers[*it] = ev;
 		it++;
 	}
 }
@@ -241,7 +229,7 @@ bool send_rest(struct epoll_event &event)
 			return false;
 		}
 		if (sent < msg.size()) {
-			q.push(msg.substr(sent, msg.size())); // it's better as second parameter to substr use (size - sent), but this case works too
+			q.push(msg.substr(sent, msg.size())); // it's better to use as second parameter to substr (size - sent), but this case works too
 			return false;
 		}	
 	}
