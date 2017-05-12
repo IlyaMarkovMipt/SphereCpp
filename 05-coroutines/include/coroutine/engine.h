@@ -62,9 +62,9 @@ private:
     context* alive;
 
     /**
-     * defines the direction of stack growth
+     * static final return point (frp)
      */
-    char dir_stack;
+    context frp;
 protected:
     /**
      * Save stack of the current coroutine in the given context
@@ -85,8 +85,7 @@ public:
     Engine()
         : StackBottom(0)
         , cur_routine(nullptr)
-        , alive(nullptr)
-	, dir_stack(0){}
+        , alive(nullptr){}
     Engine(Engine&&) = delete;
     Engine(const Engine&) = delete;
 
@@ -120,18 +119,19 @@ public:
      * @param arguments to be passed to the main coroutine
      */
     template <typename... Ta>
-    void start(void (*main)(Ta...), Ta&&... args) {
+    void start(void (*gmain)(Ta...), Ta&&... args) {
         // To acquire stack begin, create variable on stack and remember its address
         char StackStartsHere;
         this->StackBottom = &StackStartsHere;
 
-	
         // Start routine execution
-        void* pc = run(main, std::forward<Ta>(args)...);
-        if (pc != nullptr) {
-            sched(pc);
-        }
-
+	if (setjmp(frp.Environment) == 0) {
+		Store(frp);
+		void *pc = run(gmain, std::forward<Ta>(args)...);
+		sched(pc);
+	} else {
+		yield();
+	}
         // Shutdown runtime
         this->StackBottom = 0;
     }
@@ -150,15 +150,6 @@ public:
         // New coroutine context that carries around all information enough to call function
         context* pc = new context();
         pc->caller = cur_routine;
-	if (dir_stack == 0) {
-	        if ((char*) &pc > StackBottom) {
-	        // stack grows up
-	            dir_stack = 1;		
-	        } else {
-	        // stack grows down
-	            dir_stack = -1;
-	        }
-	    }
         // Store current state right here, i.e just before enter new coroutine, later, once it gets scheduled
         // execution starts here. Note that we have to acquire stack of the current function call to ensure
         // that function parameters will be passed along
@@ -193,22 +184,20 @@ public:
             delete []std::get<0>(pc->Stack);
 	    std::get<0>(pc->Stack) = nullptr;
             delete pc;
-
+	    pc = nullptr;
             // We cannot return here, as this function "returned" once already, so here we must select some other
             // coroutine to run. As current coroutine is completed and can't be scheduled anymore, it is safe to
             // just give up and ask scheduler code to select someone else, control will never returns to this one
             if (next != nullptr) {
                 sched(next);
             } else {
-                yield();
+                Restore(frp);
             }
-            return nullptr;
         }
 
         // setjmp remembers position from which routine could starts execution, but to make it correctly
         // it is neccessary to save arguments, pointer to body function, pointer to context, e.t.c - i.e
         // save stack.
-	//std::cout << "in run:::" << pc->Environment << std::endl;
         Store(*pc);
         // Add routine as alive list
         pc->next = alive;

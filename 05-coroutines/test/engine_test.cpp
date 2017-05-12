@@ -19,29 +19,23 @@ TEST(CoroutineTest, SimpleStart) {
 
 void printa(Coroutine::Engine& pe, std::stringstream& out, void*& other) {
     out << "A1 ";
-    std::cout << "A1 " << std::endl;
     pe.sched(other);
 
     out << "A2 ";
-    std::cout << "A2 " << std::endl;
     pe.sched(other);
 
     out << "A3 ";
-    std::cout << "A3 " << std::endl;
     pe.sched(other);
 }
 
 void printb(Coroutine::Engine& pe, std::stringstream& out, void*& other) {
     out << "B1 ";
-    std::cout << "B1 " << std::endl;
     pe.sched(other);
 
     out << "B2 ";
-    std::cout << "B2 " << std::endl;
     pe.sched(other);
 
     out << "B3 ";
-    std::cout << "B3 " << std::endl;
 }
 
 std::stringstream out;
@@ -50,14 +44,12 @@ void _printer(Coroutine::Engine& pe, std::string& result) {
     // Create routines, note it doens't get control yet
     pa = pe.run(printa, pe, out, pb);
     pb = pe.run(printb, pe, out, pa);
-    std::cout << "pa = " << pa << ", pb = " << pb << std::endl;
 
     // Pass control to first routine, it will ping pong
     // between printa/printb greedely then we will get
     // contol back
     pe.sched(pa);
     out << "END";
-    std::cout << "END" << std::endl;
 
     // done
     result = out.str();
